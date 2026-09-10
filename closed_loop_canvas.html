@@ -1,0 +1,586 @@
+<title>Welcome A/B Closed Loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Deliberately single-theme: this is an operator canvas, and it commits to
+     the dark ground Brew's own automation builder uses. Every color is painted
+     explicitly so the page holds on either host ground. */
+  :root {
+    --ground: #14161a;
+    --panel: #1b1e24;
+    --panel-2: #21252c;
+    --rail: #2a2f38;
+    --rail-hi: #3a4149;
+    --ink: #e6e9ef;
+    --ink-mid: #a8b0bd;
+    --ink-dim: #8d95a3;
+    --accent: #2fd4a7;
+    --accent-dim: #1d7d63;
+    --accent-wash: rgba(47, 212, 167, 0.09);
+    --warn: #e8b04b;
+    --crit: #e5644e;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 22px 64px; }
+
+  /* ---------- status bar ---------- */
+  .bar {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
+    padding-bottom: 16px; border-bottom: 1px solid var(--rail);
+  }
+  .bar h1 {
+    margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .bar .id { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+  .bar .spacer { flex: 1 1 40px; }
+
+  .chip {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    padding: 3px 8px; border-radius: 3px; white-space: nowrap;
+    border: 1px solid var(--rail-hi); color: var(--ink-mid);
+  }
+  .chip.live { border-color: var(--accent-dim); color: var(--accent); background: var(--accent-wash); }
+  .chip.off { border-color: var(--rail-hi); color: var(--ink-dim); }
+
+  .lede {
+    margin: 18px 0 0; max-width: 66ch; color: var(--ink-mid); font-size: 14.5px;
+  }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- section headings ---------- */
+  .eyebrow {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.11em; color: var(--ink-dim);
+    margin: 38px 0 12px; display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::after {
+    content: ""; flex: 1; height: 1px; background: var(--rail);
+  }
+
+  /* ---------- canvas ---------- */
+  .canvas-scroll {
+    overflow-x: auto; border: 1px solid var(--rail); border-radius: 6px;
+    background:
+      radial-gradient(circle at 1px 1px, var(--rail) 1px, transparent 0) 0 0 / 22px 22px,
+      var(--panel);
+  }
+  .canvas { position: relative; width: 1320px; height: 520px; }
+  .canvas svg { position: absolute; inset: 0; width: 1320px; height: 520px; }
+
+  .node {
+    position: absolute; border-radius: 5px; padding: 10px 12px;
+    background: var(--panel-2); border: 1px solid var(--rail-hi);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  /* The three nodes the script contributes carry the accent. Border weight is
+     the argument: slate = Brew ships it, teal = the script adds it. */
+  .node.added { border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-wash); }
+  .node.added.blocked { border-color: var(--warn); box-shadow: 0 0 0 3px rgba(232,176,75,0.08); }
+
+  .node .kind {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-dim);
+  }
+  .node.added .kind { color: var(--accent); }
+  .node.added.blocked .kind { color: var(--warn); }
+  .node .name { font-size: 13px; font-weight: 600; line-height: 1.25; }
+  .node .nid { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); word-break: break-all; }
+  .node .metrics {
+    display: flex; flex-wrap: wrap; gap: 3px 10px; margin-top: auto;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-mid);
+    font-variant-numeric: tabular-nums;
+  }
+  .node .metrics b { color: var(--ink); font-weight: 600; }
+
+  .flag {
+    position: absolute; font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-dim);
+  }
+  .flag.accent { color: var(--accent); }
+
+  /* ---------- verdict inside the decide node ---------- */
+  #verdictNode .verdict { font-size: 13px; font-weight: 700; line-height: 1.25; }
+  #verdictNode .why { font-size: 11px; color: var(--ink-mid); line-height: 1.35; }
+
+  /* ---------- policy panel ---------- */
+  .policy {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 18px 22px; padding: 18px; border: 1px solid var(--rail);
+    border-radius: 6px; background: var(--panel);
+  }
+  .field { display: flex; flex-direction: column; gap: 7px; }
+  .field > label {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim);
+  }
+  .field .hint { font-size: 11.5px; color: var(--ink-dim); line-height: 1.4; }
+
+  .seg { display: flex; border: 1px solid var(--rail-hi); border-radius: 4px; overflow: hidden; }
+  .seg button {
+    flex: 1; appearance: none; border: 0; cursor: pointer;
+    background: transparent; color: var(--ink-mid);
+    font-family: var(--mono); font-size: 11.5px; padding: 7px 4px;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .seg button + button { border-left: 1px solid var(--rail-hi); }
+  .seg button:hover { background: var(--panel-2); color: var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--accent-wash); color: var(--accent); font-weight: 600; }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .slider-row { display: flex; align-items: center; gap: 12px; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); min-width: 90px; }
+  input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .thr {
+    font-family: var(--mono); font-size: 17px; font-weight: 600; color: var(--ink);
+    font-variant-numeric: tabular-nums; min-width: 1.6em; text-align: right;
+  }
+
+  /* ---------- comparison table ---------- */
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 520px; }
+  caption { text-align: left; font-size: 12px; color: var(--ink-dim); padding-bottom: 9px; }
+  th, td {
+    text-align: right; padding: 8px 12px; border-bottom: 1px solid var(--rail);
+    font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums;
+  }
+  th:first-child, td:first-child {
+    text-align: left; font-family: var(--sans); font-size: 13px; color: var(--ink-mid);
+  }
+  thead th {
+    color: var(--ink); font-family: var(--sans); font-size: 12px; font-weight: 600;
+    border-bottom-color: var(--rail-hi);
+  }
+  thead th small { display: block; font-weight: 400; font-size: 11px; color: var(--ink-dim); }
+  tbody tr.decisive td { background: var(--accent-wash); }
+  tbody tr.decisive td:first-child { color: var(--ink); font-weight: 600; }
+  td.win { color: var(--accent); font-weight: 600; }
+  td.lose { color: var(--ink-dim); }
+  tr.rule td { border-bottom-color: var(--rail-hi); }
+
+  /* ---------- gates ---------- */
+  .gates { display: flex; flex-direction: column; gap: 0; }
+  .gate {
+    display: grid; grid-template-columns: 20px 1fr auto; gap: 12px;
+    align-items: baseline; padding: 10px 2px; border-bottom: 1px solid var(--rail);
+  }
+  .gate:last-child { border-bottom: 0; }
+  .gate .mark { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .gate.pass .mark { color: var(--accent); }
+  .gate.fail .mark { color: var(--crit); }
+  .gate .what { font-size: 13px; }
+  .gate .what span { display: block; color: var(--ink-dim); font-size: 11.5px; margin-top: 1px; }
+  .gate .val {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-mid);
+    text-align: right; white-space: nowrap;
+  }
+  .gate.fail .val { color: var(--crit); }
+
+  .note {
+    margin-top: 16px; padding: 13px 15px; border-left: 2px solid var(--warn);
+    background: rgba(232, 176, 75, 0.06); font-size: 13px; color: var(--ink-mid);
+    border-radius: 0 4px 4px 0;
+  }
+  .note b { color: var(--ink); font-weight: 600; }
+  .note code, .lede code, .gate code {
+    font-family: var(--mono); font-size: 0.92em; color: var(--ink);
+    background: var(--panel-2); padding: 1px 4px; border-radius: 3px;
+  }
+
+  footer {
+    margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--rail);
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+    display: flex; flex-wrap: wrap; gap: 6px 20px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <div class="bar">
+    <h1>Welcome A/B Test</h1>
+    <span class="id">fA4CLMr0JxUg2RPlNffRa</span>
+    <span class="spacer"></span>
+    <span class="chip off">unpublished</span>
+    <span class="chip">run arun_My0NWHzKfesBcA6g1AkAG</span>
+    <span class="chip live">10 recipients &middot; sent</span>
+    <span class="chip live">holdout released &middot; 4/4</span>
+  </div>
+
+  <p class="lede">
+    Brew's builder dealt the 50/50 split and stopped there. The three teal nodes below are
+    what <code>brew_closed_loop.py</code> adds: read the per-variant analytics back, apply a
+    winner policy, release to the remainder. <strong>Change the policy and the verdict
+    recomputes</strong> — every number here is real, and the release at the end of the
+    chain has already gone out.
+  </p>
+
+  <div class="eyebrow">Pipeline</div>
+
+  <div class="canvas-scroll">
+    <div class="canvas">
+      <svg viewBox="0 0 1320 520" aria-hidden="true">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#3a4149"></path>
+          </marker>
+          <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1d7d63"></path>
+          </marker>
+        </defs>
+        <!-- native edges -->
+        <path d="M 205 258 L 237 258" stroke="#3a4149" stroke-width="1.5" fill="none" marker-end="url(#ah)"></path>
+        <path d="M 420 258 C 440 258, 440 145, 452 145" stroke="#3a4149" stroke-width="1.5" fill="none" marker-end="url(#ah)"></path>
+        <path d="M 420 258 C 440 258, 440 375, 452 375" stroke="#3a4149" stroke-width="1.5" fill="none" marker-end="url(#ah)"></path>
+        <!-- into the added measure node -->
+        <path d="M 635 145 C 655 145, 655 258, 667 258" stroke="#1d7d63" stroke-width="1.5" fill="none" marker-end="url(#aha)"></path>
+        <path d="M 635 375 C 655 375, 655 258, 667 258" stroke="#1d7d63" stroke-width="1.5" fill="none" marker-end="url(#aha)"></path>
+        <path d="M 850 258 L 882 258" stroke="#1d7d63" stroke-width="1.5" fill="none" marker-end="url(#aha)"></path>
+        <path id="edgeRelease" d="M 1065 258 L 1097 258" stroke="#1d7d63" stroke-width="1.5" fill="none" marker-end="url(#aha)"></path>
+        <!-- the loop itself -->
+        <path d="M 1192 322 C 1192 470, 900 486, 660 486 C 420 486, 150 476, 117 400"
+              stroke="#1d7d63" stroke-width="1.3" stroke-dasharray="5 5" fill="none"
+              marker-end="url(#aha)" opacity="0.75"></path>
+      </svg>
+
+      <div class="node" style="left:30px; top:210px; width:175px; height:96px;">
+        <div class="kind">Trigger</div>
+        <div class="name">Manual audience</div>
+        <div class="metrics"><span>entered <b>10</b></span></div>
+      </div>
+
+      <div class="node" style="left:245px; top:210px; width:175px; height:96px;">
+        <div class="kind">Split &middot; 50/50</div>
+        <div class="name">Percentage split</div>
+        <div class="metrics"><span>dealt <b>4</b> / <b>6</b></span></div>
+      </div>
+
+      <div class="node" style="left:460px; top:70px; width:175px; height:150px;">
+        <div class="kind">Send &middot; Variant A</div>
+        <div class="name">Welcome Community A</div>
+        <div class="nid">sendEmail_rHFVLrUq</div>
+        <div class="metrics">
+          <span>sent <b>4</b></span><span>deliv <b>4</b></span>
+          <span>open <b>2</b></span><span>click <b>1</b></span>
+        </div>
+      </div>
+
+      <div class="node" style="left:460px; top:300px; width:175px; height:150px;">
+        <div class="kind">Send &middot; Variant B</div>
+        <div class="name">Welcome Curriculum B</div>
+        <div class="nid">sendEmail_f9PvN8wA</div>
+        <div class="metrics">
+          <span>sent <b>6</b></span><span>deliv <b>5</b></span>
+          <span>open <b>3</b></span><span>click <b>1</b></span>
+        </div>
+      </div>
+
+      <div class="flag accent" style="left:676px; top:36px;">&plus; added by script</div>
+
+      <div class="node added" style="left:675px; top:196px; width:175px; height:124px;">
+        <div class="kind">Measure</div>
+        <div class="name">Read per-variant analytics</div>
+        <div class="nid">GET /v1/analytics/sends<br>GET /v1/analytics/events</div>
+      </div>
+
+      <div class="node added" id="verdictNode" style="left:890px; top:180px; width:175px; height:156px;">
+        <div class="kind" id="verdictKind">Decide</div>
+        <div class="verdict" id="verdictText">&mdash;</div>
+        <div class="why" id="verdictWhy">&mdash;</div>
+      </div>
+
+      <div class="node added blocked" id="releaseNode" style="left:1105px; top:196px; width:175px; height:124px;">
+        <div class="kind" id="releaseKind">Release &middot; blocked</div>
+        <div class="name" id="releaseName">Holdout send</div>
+        <div class="why" id="releaseWhy" style="font-size:11px; color:var(--ink-mid); line-height:1.35;">&mdash;</div>
+      </div>
+
+      <div class="flag" style="left:250px; top:470px;">closed loop &mdash; results feed the next send</div>
+    </div>
+  </div>
+
+  <div class="eyebrow">Decision policy</div>
+
+  <div class="policy">
+    <div class="field">
+      <label id="lblPrimary">Primary metric</label>
+      <div class="seg" role="group" aria-labelledby="lblPrimary">
+        <button type="button" data-primary="clicks" aria-pressed="true">clicks</button>
+        <button type="button" data-primary="opens" aria-pressed="false">opens</button>
+      </div>
+      <div class="hint">Decides outright. The other metric becomes the tiebreaker.</div>
+    </div>
+
+    <div class="field">
+      <label id="lblMode">Counting</label>
+      <div class="seg" role="group" aria-labelledby="lblMode">
+        <button type="button" data-mode="unique" aria-pressed="true">unique</button>
+        <button type="button" data-mode="events" aria-pressed="false">raw events</button>
+      </div>
+      <div class="hint">Brew's stats count distinct recipients. Raw events count every row.</div>
+    </div>
+
+    <div class="field">
+      <label for="thr">Minimum combined <span id="thrMetric">clicks</span></label>
+      <div class="slider-row">
+        <input type="range" id="thr" min="0" max="10" step="1" value="2"
+               aria-describedby="thrHint">
+        <span class="thr" id="thrVal">2</span>
+      </div>
+      <div class="hint" id="thrHint">Below this, no winner is declared at all. Drag it to 3 and the guard blocks the release.</div>
+    </div>
+  </div>
+
+  <div class="eyebrow">Both variants, side by side</div>
+
+  <div class="table-scroll">
+    <table>
+      <caption>Live from run <code>arun_My0NWHzKfesBcA6g1AkAG</code>. Per-variant figures sum
+        exactly to Brew's own automation rollup: 9 delivered, 5 opened, 2 clicked.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Metric</th>
+          <th scope="col">Variant A<small>Welcome Community A</small></th>
+          <th scope="col">Variant B<small>Welcome Curriculum B</small></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Recipients</td><td>4</td><td>6</td></tr>
+        <tr><td>Delivered</td><td>4</td><td>5</td></tr>
+        <tr class="rule"><td>Bounced</td><td>0</td><td>1</td></tr>
+        <tr id="rowOpens"><td>Opened &mdash; unique</td><td id="oa">2</td><td id="ob">3</td></tr>
+        <tr id="rowClicks" class="rule"><td>Clicked &mdash; unique</td><td id="ca">1</td><td id="cb">1</td></tr>
+        <tr><td>Open events, raw</td><td>4</td><td>4</td></tr>
+        <tr><td>Click events, raw</td><td>4</td><td>4</td></tr>
+        <tr class="rule"><td>Distinct clickers</td><td>1</td><td>1</td></tr>
+        <tr><td>Open rate</td><td>50.0%</td><td>60.0%</td></tr>
+        <tr><td>Click rate</td><td>25.0%</td><td>20.0%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>Why the counting toggle matters.</b> Each variant logged four raw click events, and in
+    both cases every one came from a single recipient. So <code>clickedCount</code> is 1, not 4.
+    Switch to raw events and both metrics tie at 4&ndash;4 — no winner either way, which is the
+    strongest read available here: the result does not depend on how you count.
+  </div>
+
+  <div class="eyebrow">Release gates</div>
+
+  <div class="gates">
+    <div class="gate pass">
+      <div class="mark">&check;</div>
+      <div class="what">A remainder audience exists
+        <span>The original run used all 10 contacts — 4 to A, 6 to B — so the holdout was built from four fresh aliases that deliver to a single inbox.</span>
+      </div>
+      <div class="val">4 available</div>
+    </div>
+    <div class="gate pass">
+      <div class="mark">&check;</div>
+      <div class="what">Target audience is named explicitly
+        <span>&ldquo;Demo Remainder&rdquo; — passed by name, never inferred.</span>
+      </div>
+      <div class="val">j97a4czx&hellip;</div>
+    </div>
+    <div class="gate pass">
+      <div class="mark">&check;</div>
+      <div class="what">Size under the safety ceiling
+        <span><code>MAX_SAFE_AUDIENCE_SIZE = 15</code> — the guard against the real club list.</span>
+      </div>
+      <div class="val">4 &lt; 15</div>
+    </div>
+    <div class="gate pass">
+      <div class="mark">&check;</div>
+      <div class="what">Verified marketing sending domain
+        <span>mail.mrassell.com</span>
+      </div>
+      <div class="val">verified</div>
+    </div>
+    <div class="gate pass">
+      <div class="mark">&check;</div>
+      <div class="what">Confirmation gate honoured
+        <span>A <code>confirmation_required</code> response stops the run; the script never retries with <code>confirmed: true</code>.</span>
+      </div>
+      <div class="val">enforced</div>
+    </div>
+  </div>
+
+  <footer>
+    <span>a/b run 2026-09-10T03:51Z</span>
+    <span>holdout release 2026-09-10T05:06Z</span>
+    <span>brand w17df8hspqyrjnsgwa9naxfr498dr9ry</span>
+    <span>domain mail.mrassell.com</span>
+    <span>recipient addresses withheld</span>
+  </footer>
+</div>
+
+<script>
+  // Real figures from run arun_My0NWHzKfesBcA6g1AkAG.
+  var DATA = {
+    unique: { A: { clicks: 1, opens: 2 }, B: { clicks: 1, opens: 3 } },
+    events: { A: { clicks: 4, opens: 4 }, B: { clicks: 4, opens: 4 } }
+  };
+  var NAMES = { A: "Welcome Community A", B: "Welcome Curriculum B" };
+  // Holdout audience "Demo Remainder" — 4 aliases, all delivering to one inbox.
+  var REMAINDER = 4;
+
+  var state = { primary: "clicks", mode: "unique", threshold: 2 };
+
+  function decide() {
+    var d = DATA[state.mode];
+    var primary = state.primary;
+    var tiebreak = primary === "clicks" ? "opens" : "clicks";
+    var pa = d.A[primary], pb = d.B[primary];
+    var ta = d.A[tiebreak], tb = d.B[tiebreak];
+    var combined = pa + pb;
+    var pTied = pa === pb, tTied = ta === tb;
+
+    // Mirrors step 5 of brew_closed_loop.py exactly.
+    if ((pTied && tTied) || combined < state.threshold) {
+      var why = combined < state.threshold
+        ? "Sample too small: " + combined + " combined " + primary +
+          " is under the threshold of " + state.threshold + "."
+        : primary + " tied at " + pa + " and " + tiebreak + " tied at " + ta + ".";
+      return { winner: null, primary: primary, tiebreak: tiebreak, combined: combined, why: why };
+    }
+    if (!pTied) {
+      var wk = pa > pb ? "A" : "B";
+      return { winner: wk, primary: primary, tiebreak: tiebreak, combined: combined,
+               why: "Won on " + primary + ", " + Math.max(pa, pb) + " vs " + Math.min(pa, pb) + "." };
+    }
+    var tk = ta > tb ? "A" : "B";
+    return { winner: tk, primary: primary, tiebreak: tiebreak, combined: combined,
+             why: primary + " tied at " + pa + "; won on the " + tiebreak +
+                  " tiebreak, " + Math.max(ta, tb) + " vs " + Math.min(ta, tb) + "." };
+  }
+
+  function render() {
+    var r = decide();
+    var d = DATA[state.mode];
+
+    // --- decide node ---
+    var node = document.getElementById("verdictNode");
+    var kind = document.getElementById("verdictKind");
+    var text = document.getElementById("verdictText");
+    var why = document.getElementById("verdictWhy");
+    if (r.winner) {
+      node.classList.remove("blocked");
+      kind.textContent = "Decide · winner";
+      text.textContent = "Variant " + r.winner + " wins";
+      text.style.color = "var(--accent)";
+    } else {
+      node.classList.add("blocked");
+      kind.textContent = "Decide · no winner";
+      text.textContent = "No winner";
+      text.style.color = "var(--warn)";
+    }
+    why.textContent = r.why;
+
+    // --- release node: a winner arms it, but the empty remainder still blocks ---
+    var rel = document.getElementById("releaseNode");
+    var rk = document.getElementById("releaseKind");
+    var rn = document.getElementById("releaseName");
+    var rw = document.getElementById("releaseWhy");
+    var edge = document.getElementById("edgeRelease");
+    if (!r.winner) {
+      rel.classList.add("blocked");
+      rk.textContent = "Release · not reached";
+      rn.textContent = "Holdout send";
+      rw.textContent = "Step 5 stopped the run. Nothing is sent.";
+      edge.setAttribute("stroke-dasharray", "4 4");
+      edge.setAttribute("opacity", "0.45");
+    } else if (REMAINDER === 0) {
+      rel.classList.add("blocked");
+      rk.textContent = "Release · blocked";
+      rn.textContent = NAMES[r.winner];
+      rw.textContent = "No remainder: all 10 contacts already got a variant.";
+      edge.setAttribute("stroke-dasharray", "none");
+      edge.setAttribute("opacity", "1");
+    } else {
+      rel.classList.remove("blocked");
+      rk.textContent = "Release · sent";
+      rn.textContent = NAMES[r.winner];
+      rw.textContent = REMAINDER + "/" + REMAINDER + " delivered · 9yoPsg4LtGDfROq-hrXXs";
+      edge.setAttribute("stroke-dasharray", "none");
+      edge.setAttribute("opacity", "1");
+    }
+
+    // --- table: swap counting mode, mark the decisive row and the winning cell ---
+    document.getElementById("ca").textContent = d.A.clicks;
+    document.getElementById("cb").textContent = d.B.clicks;
+    document.getElementById("oa").textContent = d.A.opens;
+    document.getElementById("ob").textContent = d.B.opens;
+
+    var label = state.mode === "unique" ? "unique" : "raw events";
+    document.querySelector("#rowClicks td").textContent = "Clicked — " + label;
+    document.querySelector("#rowOpens td").textContent = "Opened — " + label;
+
+    var rowFor = { clicks: "rowClicks", opens: "rowOpens" };
+    ["rowClicks", "rowOpens"].forEach(function (id) {
+      var tr = document.getElementById(id);
+      tr.classList.toggle("decisive", id === rowFor[r.primary]);
+      var cells = tr.querySelectorAll("td");
+      cells[1].className = ""; cells[2].className = "";
+    });
+    if (r.winner) {
+      var metric = r.primary;
+      var decidedOn = (d.A[r.primary] === d.B[r.primary]) ? r.tiebreak : r.primary;
+      var tr2 = document.getElementById(rowFor[decidedOn]);
+      var cells2 = tr2.querySelectorAll("td");
+      cells2[r.winner === "A" ? 1 : 2].className = "win";
+      cells2[r.winner === "A" ? 2 : 1].className = "lose";
+    }
+
+    document.getElementById("thrMetric").textContent = r.primary;
+    document.getElementById("thrVal").textContent = state.threshold;
+  }
+
+  document.querySelectorAll("[data-primary]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      state.primary = b.dataset.primary;
+      document.querySelectorAll("[data-primary]").forEach(function (o) {
+        o.setAttribute("aria-pressed", String(o === b));
+      });
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-mode]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      state.mode = b.dataset.mode;
+      document.querySelectorAll("[data-mode]").forEach(function (o) {
+        o.setAttribute("aria-pressed", String(o === b));
+      });
+      render();
+    });
+  });
+
+  document.getElementById("thr").addEventListener("input", function (e) {
+    state.threshold = Number(e.target.value);
+    render();
+  });
+
+  render();
+</script>
