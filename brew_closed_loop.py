@@ -27,8 +27,10 @@ Credentials come from the environment, never from this file:
 
 Usage:
     python brew_closed_loop.py
-    python brew_closed_loop.py --count-mode events     # override the click counter
-    python brew_closed_loop.py --remainder-audience "<audience name or id>"
+    python brew_closed_loop.py --count-mode events        # count raw event rows
+    python brew_closed_loop.py --min-combined 2           # accept a thinner sample
+    python brew_closed_loop.py --remainder-audience "Demo Remainder"
+    python brew_closed_loop.py --remainder-audience "Demo Remainder" --send
 """
 
 import argparse
@@ -50,11 +52,10 @@ TIEBREAK_METRIC = "opens"
 
 # Below this many combined primary-metric events across BOTH variants, refuse to
 # declare a winner at all. Small samples make a "winner" an artifact of noise.
-# NOTE: lowered from 3 to 2 for the 2026-09-10 demo run, which had exactly two
-# clicks total. That was enough to let the opens tiebreak through and release a
-# winner on camera. It is a demo setting, not a defensible one — put it back to
-# 3 (or higher) before trusting any verdict this produces.
-MIN_COMBINED_PRIMARY = 2
+# Override per-run with --min-combined rather than editing this: the 2026-09-10
+# demo needed 2 to let its two clicks through, and that belongs in the command,
+# not in the committed default.
+MIN_COMBINED_PRIMARY = 3
 
 # How to count an open/click:
 #   "unique" — distinct recipients (this is what Brew's own send stats report)
@@ -533,7 +534,7 @@ def _print_table(variants):
 # Step 5 — the decision
 # ---------------------------------------------------------------------------
 
-def step5_decide(variants, count_mode):
+def step5_decide(variants, count_mode, min_combined):
     banner(5, "Decide a winner")
     a, b = variants["A"], variants["B"]
     ca, cb = counts_for(a, count_mode), counts_for(b, count_mode)
@@ -543,7 +544,7 @@ def step5_decide(variants, count_mode):
     combined = primary_a + primary_b
 
     print(f"  policy: primary={PRIMARY_METRIC}  tiebreak={TIEBREAK_METRIC}  "
-          f"min combined {PRIMARY_METRIC}={MIN_COMBINED_PRIMARY}  count_mode={count_mode}")
+          f"min combined {PRIMARY_METRIC}={min_combined}  count_mode={count_mode}")
     print(f"  {PRIMARY_METRIC:>9}: A={primary_a}  B={primary_b}  (combined {combined})")
     print(f"  {TIEBREAK_METRIC:>9}: A={tie_a}  B={tie_b}\n")
 
@@ -551,13 +552,13 @@ def step5_decide(variants, count_mode):
     tie_tied = tie_a == tie_b
 
     # Both no-winner conditions from the policy, evaluated as a veto.
-    if (primary_tied and tie_tied) or combined < MIN_COMBINED_PRIMARY:
+    if (primary_tied and tie_tied) or combined < min_combined:
         print("  DECISION: NO WINNER")
-        if combined < MIN_COMBINED_PRIMARY:
+        if combined < min_combined:
             print(f"\n  No statistically meaningful winner — sample size too small "
                   f"({combined} total {PRIMARY_METRIC}).")
             print(f"  Declaring a winner here would be arbitrary. "
-                  f"(threshold: MIN_COMBINED_PRIMARY={MIN_COMBINED_PRIMARY})")
+                  f"(threshold: min combined {PRIMARY_METRIC} = {min_combined})")
             if primary_tied:
                 print(f"  {PRIMARY_METRIC.capitalize()} were also tied at "
                       f"{primary_a} apiece, so there is nothing to break.")
@@ -565,8 +566,8 @@ def step5_decide(variants, count_mode):
             print(f"\n  No winner — {PRIMARY_METRIC} tied at {primary_a} and "
                   f"{TIEBREAK_METRIC} tied at {tie_a}. Nothing separates the variants.")
         print("\n  Stopping before step 7. No email will be sent.")
-        print("  To act on a thinner sample, lower MIN_COMBINED_PRIMARY at the top")
-        print("  of this script — but know that you are choosing noise.")
+        print(f"  To act on a thinner sample, re-run with --min-combined {combined}")
+        print("  — but know that you are choosing noise.")
         return None
 
     if not primary_tied:
@@ -807,6 +808,10 @@ def main():
     parser = argparse.ArgumentParser(description="Closed-loop A/B winner release for Brew.")
     parser.add_argument("--count-mode", choices=("unique", "events"), default=COUNT_MODE,
                         help="count unique recipients (default) or raw event rows")
+    parser.add_argument("--min-combined", type=int, default=MIN_COMBINED_PRIMARY,
+                        metavar="N",
+                        help=f"minimum combined {PRIMARY_METRIC} across both variants "
+                             f"before any winner is declared (default {MIN_COMBINED_PRIMARY})")
     parser.add_argument("--remainder-audience", default=None,
                         help="name or id of the small test audience for the winner")
     parser.add_argument("--send", action="store_true",
@@ -841,7 +846,7 @@ def main():
         banner(6, "Both variants, side by side")
         _print_table(variants)
 
-        winner = step5_decide(variants, args.count_mode)
+        winner = step5_decide(variants, args.count_mode, args.min_combined)
         if winner is None:
             print(f"\n{'=' * 74}\nDone — no winner declared, nothing sent.\n{'=' * 74}\n")
             return 0
